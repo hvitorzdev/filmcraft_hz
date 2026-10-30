@@ -1,0 +1,20 @@
+[package]
+name = "filmcraft-ai"
+description = "FilmCraft AI assistant: a provider-neutral LLM client (OpenAI-compatible chat completions and the Anthropic Messages API) with tool calling, and the agent loop that turns a request in plain language into FilmCraft commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# HTTPS for the providers (pure-Rust TLS: rustls + RustCrypto, OS certificate verification, as in
+# filmcraft-speech). Not built for the web, where the assistant reports that it is unavailable.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
+rustls-rustcrypto = { version = "0.0.2-alpha" }

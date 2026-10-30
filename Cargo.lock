@@ -1882,6 +1882,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "filmcraft-ai"
+version = "0.14.0"
+dependencies = [
+ "rustls-rustcrypto",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "filmcraft-apv"
 version = "0.14.0"
 dependencies = [
@@ -2493,6 +2503,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "filmcraft-ai",
  "filmcraft-audio-dsp",
  "filmcraft-codecs",
  "filmcraft-color",

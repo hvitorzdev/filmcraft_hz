@@ -3586,3 +3586,29 @@
 	Open a sequence to search its graphics	Abra uma sequência para pesquisar nos gráficos dela
 	No text graphics in this sequence. Add text with the Type tool.	Esta sequência não tem gráficos com texto. Adicione texto com a ferramenta Texto.
 	No matching text.	Nenhum texto corresponde.
+	AI Assistant	Assistente de IA
+	API key	Chave de API
+	Ask for an edit in your own words. The assistant uses FilmCraft's commands, and every change can be undone.	Peça uma edição com suas palavras. O assistente usa os comandos do FilmCraft, e toda alteração pode ser desfeita.
+	Couldn't save the assistant settings: {error}	Não foi possível salvar as configurações do assistente: {error}
+	New chat	Nova conversa
+	OpenAI-compatible	Compatível com OpenAI
+	Protocol	Protocolo
+	Provider	Provedor
+	Send	Enviar
+	Server address	Endereço do servidor
+	Steps per request	Etapas por pedido
+	Stopped after {n} steps; ask again to continue.	Parou após {n} etapas; peça de novo para continuar.
+	Stopped.	Interrompido.
+	The key is saved in plain text in FilmCraft's settings folder on this computer. Requests send your instructions and the project structure (names, clip times, transcript) to the provider you choose; media files are never uploaded.	A chave fica salva em texto simples na pasta de configurações do FilmCraft neste computador. Os pedidos enviam suas instruções e a estrutura do projeto (nomes, tempos dos clipes, transcrição) ao provedor escolhido; os arquivos de mídia nunca são enviados.
+	What should I do? (Enter sends, Shift+Enter adds a line)	O que devo fazer? (Enter envia, Shift+Enter quebra a linha)
+	Working…	Trabalhando…
+	e.g. a model id from your provider	ex.: o id de um modelo do seu provedor
+	no model chosen	nenhum modelo escolhido
+	not needed for a server on this computer	não é necessária para um servidor neste computador
+	or set {var} in the environment	ou defina {var} no ambiente
+	Remove the silences and long pauses	Remova os silêncios e as pausas longas
+	Remove filler words and stutters	Remova vícios de linguagem e gaguejos
+	Generate short captions, TikTok style	Gere legendas curtas, estilo TikTok
+	Lower the music to -20 dB while I'm talking	Abaixe a música para -20 dB enquanto eu estiver falando
+	Clean the background noise from my voice	Limpe o ruído de fundo da minha voz
+	Add a slow zoom-in to the selected clip	Adicione um zoom-in lento no clipe selecionado
