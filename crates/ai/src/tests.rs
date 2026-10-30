@@ -223,7 +223,7 @@ fn busy_servers_are_retried_then_reported() {
     run_turn(&openai_settings(), &t, "", &[], &mut Vec::new(), "x", &mut |_| (true, String::new()), &mut |e| events.push(e), &AtomicBool::new(false)).unwrap();
     let retries: Vec<_> = events.iter().filter(|e| matches!(e, Event::Retrying { .. })).collect();
     assert_eq!(retries.len(), 2, "{events:?}");
-    assert!(matches!(retries[0], Event::Retrying { attempt: 1, seconds: 3, reason } if reason.contains("high demand")));
+    assert!(matches!(retries[0], Event::Retrying { attempt: 1, of: 3, seconds: 3, reason } if reason.contains("high demand")));
     // always busy: gives up after the last wait with the server's error
     let t = Flaky(Mutex::new(vec![Err(busy()), Err(busy()), Err(busy()), Err(busy())]));
     let r = run_turn(&openai_settings(), &t, "", &[], &mut Vec::new(), "x", &mut |_| (true, String::new()), &mut |_| {}, &AtomicBool::new(false));
@@ -265,4 +265,56 @@ fn gemini_thought_signatures_go_back_with_their_calls() {
     assert_eq!(call["extra_content"], sig, "{call}");
     // providers without it get no extra field
     assert!(seen[0].2["messages"].as_array().unwrap().iter().all(|m| m.get("extra_content").is_none()));
+}
+
+#[test]
+fn rate_limits_wait_as_long_as_the_server_asks() {
+    let groq = AiError::Status {
+        host: "api.groq.com".into(),
+        code: 429,
+        message: "Rate limit reached for model `openai/gpt-oss-120b` on tokens per minute (TPM): Limit 8000, Used 6851, Requested 4972. Please try again in 28.6725s. Need more tokens?".into(),
+    };
+    assert_eq!(groq.retry_hint(), Some(29));
+    let ms = AiError::Status { host: "h".into(), code: 429, message: "Please try again in 750ms.".into() };
+    assert_eq!(ms.retry_hint(), Some(1));
+    let none = AiError::Status { host: "h".into(), code: 503, message: "busy".into() };
+    assert_eq!(none.retry_hint(), None);
+    let huge = AiError::Status { host: "h".into(), code: 429, message: "try again in 99999s".into() };
+    assert_eq!(huge.retry_hint(), Some(MAX_RETRY_WAIT));
+
+    struct Flaky(Mutex<Vec<Result<Value, AiError>>>);
+    impl Transport for Flaky {
+        fn post_json(&self, _: &str, _: &[(&str, String)], _: &Value, _: u64) -> Result<Value, AiError> {
+            self.0.lock().unwrap().pop().unwrap_or_else(|| Err(AiError::Http("empty".into())))
+        }
+    }
+    let mut v: Vec<Result<Value, AiError>> = vec![Ok(json!({"choices": [{"message": {"content": "ok"}}]}))];
+    v.extend((0..5).map(|_| Err(groq.clone())));
+    let t = Flaky(Mutex::new(v));
+    let mut waits = Vec::new();
+    let r = chat_retrying(&openai_settings(), &t, "", &[], &[], &mut |a, of, s, _| {
+        waits.push((a, of, s));
+        true
+    });
+    assert!(r.is_ok(), "{r:?}");
+    assert_eq!(waits, (1..=5).map(|a| (a, MAX_HINTED_RETRIES, 30)).collect::<Vec<_>>());
+}
+
+#[test]
+fn earlier_tool_results_are_shortened_in_requests() {
+    let big = "x".repeat(5000);
+    let call = |id: &str| ToolCall { id: id.into(), name: "inspect_sequence".into(), arguments: json!({}), extra: None };
+    let h = vec![
+        Message::User { text: "u".into() },
+        Message::Assistant { text: String::new(), tool_calls: vec![call("a")] },
+        Message::Tool { call_id: "a".into(), name: "inspect_sequence".into(), content: big.clone() },
+        Message::Assistant { text: String::new(), tool_calls: vec![call("b")] },
+        Message::Tool { call_id: "b".into(), name: "inspect_sequence".into(), content: big.clone() },
+    ];
+    let c = compact_history(&h);
+    let Message::Tool { content: old, .. } = &c[2] else { panic!() };
+    let Message::Tool { content: latest, .. } = &c[4] else { panic!() };
+    assert!(old.chars().count() < 900 && old.contains("truncated"), "{}", old.len());
+    assert_eq!(latest, &big);
+    assert_eq!(c.len(), h.len());
 }

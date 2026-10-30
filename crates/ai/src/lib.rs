@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Longest text kept from one tool result before it goes back to the model (characters).
-pub const MAX_TOOL_RESULT_CHARS: usize = 24_000;
+pub const MAX_TOOL_RESULT_CHARS: usize = 16_000;
 
 /// One tool call the model asked for.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -107,10 +107,36 @@ impl AiError {
             _ => false,
         }
     }
+
+    /// The wait the server asked for, in seconds (rounded up): "Please try again in 28.6725s",
+    /// "try again in 750ms", "retry after 12 seconds".
+    pub fn retry_hint(&self) -> Option<u64> {
+        let AiError::Status { message, .. } = self else { return None };
+        let lower = message.to_lowercase();
+        ["try again in ", "retry in ", "retry after ", "try again after "].iter().find_map(|key| {
+            let rest = lower.get(lower.find(key)? + key.len()..)?;
+            let num: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+            let value: f64 = num.parse().ok()?;
+            let unit = rest.get(num.len()..).unwrap_or("").trim_start();
+            let secs = if unit.starts_with("ms") {
+                value / 1000.0
+            } else if unit.starts_with('m') && !unit.starts_with("ms") {
+                value * 60.0
+            } else {
+                value
+            };
+            (secs.is_finite() && secs >= 0.0).then(|| (secs.ceil() as u64).clamp(1, MAX_RETRY_WAIT))
+        })
+    }
 }
 
-/// Waits before each retry of a transient error (seconds); after the last one the error is returned.
+/// Waits before each retry of a transient error (seconds) when the server doesn't say how long;
+/// after the last one the error is returned.
 pub const RETRY_WAITS: [u64; 3] = [3, 8, 20];
+/// Retries when the server says how long to wait (rate limits such as tokens per minute).
+pub const MAX_HINTED_RETRIES: usize = 6;
+/// Longest single wait (seconds).
+pub const MAX_RETRY_WAIT: u64 = 90;
 
 /// One request to the model: the system prompt, the conversation so far and the tools. Returns the
 /// assistant's reply (text, tool calls or both). No retries; see [`chat_retrying`].
@@ -130,8 +156,9 @@ pub fn chat(settings: &Settings, transport: &dyn Transport, system: &str, messag
     }
 }
 
-/// [`chat`], retrying transient errors (busy or rate-limited servers) after the [`RETRY_WAITS`].
-/// `wait(attempt, seconds, error)` is called before each retry and does the waiting; returning
+/// [`chat`], retrying transient errors (busy or rate-limited servers): after the wait the server
+/// asks for (plus a second), up to [`MAX_HINTED_RETRIES`] times, else after the [`RETRY_WAITS`].
+/// `wait(attempt, of, seconds, error)` is called before each retry and does the waiting; returning
 /// false gives up (the user stopped) with [`AiError::Cancelled`].
 pub fn chat_retrying(
     settings: &Settings,
@@ -139,15 +166,24 @@ pub fn chat_retrying(
     system: &str,
     messages: &[Message],
     tools: &[ToolDef],
-    wait: &mut dyn FnMut(usize, u64, &AiError) -> bool,
+    wait: &mut dyn FnMut(usize, usize, u64, &AiError) -> bool,
 ) -> Result<Message, AiError> {
     let mut attempt = 0usize;
     loop {
         match chat(settings, transport, system, messages, tools) {
             Err(e) if e.is_transient() => {
-                let Some(&secs) = RETRY_WAITS.get(attempt) else { return Err(e) };
+                let (secs, of) = match e.retry_hint() {
+                    Some(h) => (h.saturating_add(1).min(MAX_RETRY_WAIT), MAX_HINTED_RETRIES),
+                    None => match RETRY_WAITS.get(attempt) {
+                        Some(&s) => (s, RETRY_WAITS.len()),
+                        None => return Err(e),
+                    },
+                };
+                if attempt >= of {
+                    return Err(e);
+                }
                 attempt += 1;
-                if !wait(attempt, secs, &e) {
+                if !wait(attempt, of, secs, &e) {
                     return Err(AiError::Cancelled);
                 }
             }
@@ -155,6 +191,26 @@ pub fn chat_retrying(
         }
     }
 }
+
+/// The conversation as sent to the model: tool results from earlier steps are shortened (the model
+/// has already read them), so long requests stay within small per-minute token limits. The results
+/// of the latest step stay whole.
+pub fn compact_history(history: &[Message]) -> Vec<Message> {
+    let last_assistant = history.iter().rposition(|m| matches!(m, Message::Assistant { .. })).unwrap_or(0);
+    history
+        .iter()
+        .enumerate()
+        .map(|(i, m)| match m {
+            Message::Tool { call_id, name, content } if i < last_assistant => {
+                Message::Tool { call_id: call_id.clone(), name: name.clone(), content: truncate(content, OLD_TOOL_RESULT_CHARS) }
+            }
+            other => other.clone(),
+        })
+        .collect()
+}
+
+/// Characters kept from a tool result once the model has moved past it.
+pub const OLD_TOOL_RESULT_CHARS: usize = 800;
 
 /// `text` cut to at most `max` characters (on a character boundary), with a note when it was cut.
 pub fn truncate(text: &str, max: usize) -> String {

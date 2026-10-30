@@ -269,7 +269,7 @@ fn list_commands(app: &mut FilmcraftApp, filter: &str, enabled_only: bool) -> Re
             continue;
         }
         total += 1;
-        if lines.len() < 120 {
+        if lines.len() < 60 {
             let params = c.get("params").and_then(Value::as_str).unwrap_or("{}");
             lines.push(format!("{id} | {label} | {params}{}", if enabled { "" } else { " | (disabled now)" }));
         }
@@ -386,8 +386,7 @@ pub fn pump(app: &mut FilmcraftApp, ctx: &egui::Context) {
                     *s = summary;
                 }
             }
-            WorkerMsg::Event(Event::Retrying { attempt, seconds, reason }) => {
-                let n = filmcraft_ai::RETRY_WAITS.len();
+            WorkerMsg::Event(Event::Retrying { attempt, of: n, seconds, reason }) => {
                 app.ai.push(LogEntry::Info(tlf!(
                     "The server is busy ({reason}). Trying again in {s} s ({a} of {n})…",
                     reason = reason,
