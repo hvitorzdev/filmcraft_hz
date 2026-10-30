@@ -70,8 +70,10 @@ pub enum Message {
 pub enum AiError {
     /// The settings can't be used (no model, no key…). The text says what to fix.
     Config(String),
-    /// The request didn't get an answer (network, TLS, timeout, HTTP error with its body).
+    /// The request didn't get an answer (network, TLS, timeout).
     Http(String),
+    /// The server answered with an error status; `message` is the provider's explanation.
+    Status { host: String, code: u16, message: String },
     /// The answer wasn't what the provider's API promises.
     BadReply(String),
     /// The user stopped the request.
@@ -83,6 +85,7 @@ impl std::fmt::Display for AiError {
         match self {
             AiError::Config(m) => write!(f, "{m}"),
             AiError::Http(m) => write!(f, "{m}"),
+            AiError::Status { host, code, message } => write!(f, "{host} answered HTTP {code}: {message}"),
             AiError::BadReply(m) => write!(f, "unexpected reply from the model: {m}"),
             AiError::Cancelled => write!(f, "stopped"),
         }
@@ -91,8 +94,22 @@ impl std::fmt::Display for AiError {
 
 impl std::error::Error for AiError {}
 
+impl AiError {
+    /// A temporary condition worth retrying: rate limits, overload, a gateway hiccup, a timeout.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            AiError::Status { code, .. } => matches!(code, 408 | 429 | 500 | 502 | 503 | 504 | 529),
+            AiError::Http(m) => m.contains("timed out") || m.contains("timeout"),
+            _ => false,
+        }
+    }
+}
+
+/// Waits before each retry of a transient error (seconds); after the last one the error is returned.
+pub const RETRY_WAITS: [u64; 3] = [3, 8, 20];
+
 /// One request to the model: the system prompt, the conversation so far and the tools. Returns the
-/// assistant's reply (text, tool calls or both).
+/// assistant's reply (text, tool calls or both). No retries; see [`chat_retrying`].
 pub fn chat(settings: &Settings, transport: &dyn Transport, system: &str, messages: &[Message], tools: &[ToolDef]) -> Result<Message, AiError> {
     let model = settings.model.trim();
     if model.is_empty() {
@@ -100,14 +117,38 @@ pub fn chat(settings: &Settings, transport: &dyn Transport, system: &str, messag
     }
     let key = settings.resolved_key();
     if key.is_empty() && settings.needs_key() {
-        return Err(AiError::Config(format!(
-            "add an API key in the assistant settings (or set {} in the environment)",
-            settings.provider.key_env().unwrap_or("the provider's key variable")
-        )));
+        let env = settings.preset().and_then(|p| p.key_env).or_else(|| settings.provider.key_env()).unwrap_or("the provider's key variable");
+        return Err(AiError::Config(format!("add an API key in the assistant settings (or set {env} in the environment)")));
     }
     match settings.provider {
         Provider::OpenAiCompatible => openai::chat(settings, &key, transport, system, messages, tools),
         Provider::Anthropic => anthropic::chat(settings, &key, transport, system, messages, tools),
+    }
+}
+
+/// [`chat`], retrying transient errors (busy or rate-limited servers) after the [`RETRY_WAITS`].
+/// `wait(attempt, seconds, error)` is called before each retry and does the waiting; returning
+/// false gives up (the user stopped) with [`AiError::Cancelled`].
+pub fn chat_retrying(
+    settings: &Settings,
+    transport: &dyn Transport,
+    system: &str,
+    messages: &[Message],
+    tools: &[ToolDef],
+    wait: &mut dyn FnMut(usize, u64, &AiError) -> bool,
+) -> Result<Message, AiError> {
+    let mut attempt = 0usize;
+    loop {
+        match chat(settings, transport, system, messages, tools) {
+            Err(e) if e.is_transient() => {
+                let Some(&secs) = RETRY_WAITS.get(attempt) else { return Err(e) };
+                attempt += 1;
+                if !wait(attempt, secs, &e) {
+                    return Err(AiError::Cancelled);
+                }
+            }
+            other => return other,
+        }
     }
 }
 

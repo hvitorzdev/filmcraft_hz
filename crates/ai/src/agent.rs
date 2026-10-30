@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{AiError, MAX_TOOL_RESULT_CHARS, Message, Settings, ToolCall, ToolDef, Transport, chat, truncate};
+use crate::{AiError, MAX_TOOL_RESULT_CHARS, Message, Settings, ToolCall, ToolDef, Transport, chat_retrying, truncate};
 
 /// Progress of a turn, for the UI.
 #[derive(Clone, Debug, PartialEq)]
@@ -15,6 +15,16 @@ pub enum Event {
     ToolFinished { call: ToolCall, ok: bool, summary: String },
     /// The step budget ran out before the model answered.
     StepLimit(u32),
+    /// The server was busy or rate-limited; trying again after `seconds` (retry `attempt`).
+    Retrying { attempt: usize, seconds: u64, reason: String },
+}
+
+/// Sleeps (a no-op in unit tests, so retries don't slow them down).
+fn sleep(d: std::time::Duration) {
+    if cfg!(test) {
+        return;
+    }
+    std::thread::sleep(d);
 }
 
 /// Run one user request to completion.
@@ -39,7 +49,17 @@ pub fn run_turn(
         if cancel.load(Ordering::Relaxed) {
             return Err(AiError::Cancelled);
         }
-        let reply = chat(settings, transport, system, history, tools)?;
+        let reply = chat_retrying(settings, transport, system, history, tools, &mut |attempt, seconds, e| {
+            on_event(Event::Retrying { attempt, seconds, reason: e.to_string() });
+            // wait in short slices so Stop takes effect quickly
+            for _ in 0..seconds.saturating_mul(10) {
+                if cancel.load(Ordering::Relaxed) {
+                    return false;
+                }
+                sleep(std::time::Duration::from_millis(100));
+            }
+            !cancel.load(Ordering::Relaxed)
+        })?;
         let Message::Assistant { text, tool_calls } = &reply else {
             return Err(AiError::BadReply("not an assistant message".into()));
         };

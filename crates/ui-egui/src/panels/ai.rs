@@ -386,6 +386,16 @@ pub fn pump(app: &mut FilmcraftApp, ctx: &egui::Context) {
                     *s = summary;
                 }
             }
+            WorkerMsg::Event(Event::Retrying { attempt, seconds, reason }) => {
+                let n = filmcraft_ai::RETRY_WAITS.len();
+                app.ai.push(LogEntry::Info(tlf!(
+                    "The server is busy ({reason}). Trying again in {s} s ({a} of {n})…",
+                    reason = reason,
+                    s = seconds,
+                    a = attempt,
+                    n = n
+                )));
+            }
             WorkerMsg::Event(Event::StepLimit(n)) => app.ai.push(LogEntry::Info(tlf!("Stopped after {n} steps; ask again to continue.", n = n))),
             WorkerMsg::Done(history, err) => {
                 app.ai.history = history;

@@ -52,11 +52,7 @@ impl Transport for HttpTransport {
             .read_to_string(&mut text)
             .map_err(|e| AiError::Http(format!("reading the reply from {} failed ({e})", host(url))))?;
         if !(200..300).contains(&status) {
-            let detail = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_string))
-                .unwrap_or_else(|| crate::truncate(text.trim(), 400));
-            return Err(AiError::Http(format!("{} answered HTTP {status}: {detail}", host(url))));
+            return Err(AiError::Status { host: host(url).to_string(), code: status, message: error_message(&text) });
         }
         serde_json::from_str(&text).map_err(|e| AiError::BadReply(format!("not JSON ({e})")))
     }
@@ -67,6 +63,16 @@ impl Transport for HttpTransport {
     fn post_json(&self, _url: &str, _headers: &[(&str, String)], _body: &Value, _timeout_secs: u64) -> Result<Value, AiError> {
         Err(AiError::Config("the AI assistant is only available in the desktop app".into()))
     }
+}
+
+/// The provider's explanation from an error body: `{"error":{"message"}}`, the same inside a
+/// list (Google), `{"message"}` or `{"detail"}`; else the start of the body. One line.
+pub(crate) fn error_message(body: &str) -> String {
+    let v = serde_json::from_str::<Value>(body).unwrap_or(Value::Null);
+    let found =
+        ["/error/message", "/0/error/message", "/message", "/detail", "/error"].iter().find_map(|p| v.pointer(p).and_then(Value::as_str).map(str::to_string));
+    let text = found.unwrap_or_else(|| body.trim().to_string());
+    crate::truncate(&text.split_whitespace().collect::<Vec<_>>().join(" "), 400)
 }
 
 /// The host of `url`, for messages (never the path or query, which might hold a key).

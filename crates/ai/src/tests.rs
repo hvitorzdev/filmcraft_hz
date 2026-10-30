@@ -203,5 +203,48 @@ fn http_transport_posts_json_and_reports_http_errors() {
     let s = Settings { base_url: url, ..s };
     let err = chat(&s, &HttpTransport, "", &[], &[]).unwrap_err();
     h.join().unwrap();
-    assert!(matches!(&err, AiError::Http(m) if m.contains("401") && m.contains("Incorrect API key") && !m.contains("sk-test")), "{err:?}");
+    assert!(matches!(&err, AiError::Status { code: 401, message, .. } if message == "Incorrect API key"), "{err:?}");
+    assert!(!err.to_string().contains("sk-test") && err.to_string().contains("401"));
+}
+
+#[test]
+fn busy_servers_are_retried_then_reported() {
+    let busy = || AiError::Status { host: "h".into(), code: 503, message: "high demand".into() };
+    struct Flaky(Mutex<Vec<Result<Value, AiError>>>);
+    impl Transport for Flaky {
+        fn post_json(&self, _: &str, _: &[(&str, String)], _: &Value, _: u64) -> Result<Value, AiError> {
+            self.0.lock().unwrap().pop().unwrap_or_else(|| Err(AiError::Http("empty".into())))
+        }
+    }
+    let ok = json!({"choices": [{"message": {"content": "oi"}}]});
+    // two busy answers, then success: the turn succeeds and reports both retries
+    let t = Flaky(Mutex::new(vec![Ok(ok), Err(busy()), Err(busy())]));
+    let mut events = Vec::new();
+    run_turn(&openai_settings(), &t, "", &[], &mut Vec::new(), "x", &mut |_| (true, String::new()), &mut |e| events.push(e), &AtomicBool::new(false)).unwrap();
+    let retries: Vec<_> = events.iter().filter(|e| matches!(e, Event::Retrying { .. })).collect();
+    assert_eq!(retries.len(), 2, "{events:?}");
+    assert!(matches!(retries[0], Event::Retrying { attempt: 1, seconds: 3, reason } if reason.contains("high demand")));
+    // always busy: gives up after the last wait with the server's error
+    let t = Flaky(Mutex::new(vec![Err(busy()), Err(busy()), Err(busy()), Err(busy())]));
+    let r = run_turn(&openai_settings(), &t, "", &[], &mut Vec::new(), "x", &mut |_| (true, String::new()), &mut |_| {}, &AtomicBool::new(false));
+    assert_eq!(r, Err(busy()));
+    // a bad key is not retried
+    let bad = AiError::Status { host: "h".into(), code: 401, message: "no".into() };
+    let t = Flaky(Mutex::new(vec![Ok(json!({})), Err(bad.clone())]));
+    assert_eq!(run_turn(&openai_settings(), &t, "", &[], &mut Vec::new(), "x", &mut |_| (true, String::new()), &mut |_| {}, &AtomicBool::new(false)), Err(bad));
+}
+
+#[test]
+fn error_bodies_become_one_line_messages() {
+    let google = r#"[{
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand.\nPlease try again later.",
+    "status": "UNAVAILABLE"
+  }
+}]"#;
+    assert_eq!(transport::error_message(google), "This model is currently experiencing high demand. Please try again later.");
+    assert_eq!(transport::error_message(r#"{"error":{"message":"bad key"}}"#), "bad key");
+    assert_eq!(transport::error_message(r#"{"detail":"nope"}"#), "nope");
+    assert_eq!(transport::error_message("<html>\n Bad Gateway </html>"), "<html> Bad Gateway </html>");
 }

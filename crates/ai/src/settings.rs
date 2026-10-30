@@ -35,7 +35,21 @@ pub struct Preset {
 }
 
 impl Preset {
-    pub const ALL: [Preset; 5] = [
+    pub const ALL: [Preset; 7] = [
+        Preset {
+            name: "Google Gemini (free tier)",
+            provider: Provider::OpenAiCompatible,
+            base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+            model: "gemini-3.8-flash",
+            key_env: Some("GEMINI_API_KEY"),
+        },
+        Preset {
+            name: "Groq (free tier)",
+            provider: Provider::OpenAiCompatible,
+            base_url: "https://api.groq.com/openai/v1",
+            model: "openai/gpt-oss-120b",
+            key_env: Some("GROQ_API_KEY"),
+        },
         Preset {
             name: "Anthropic (Claude)",
             provider: Provider::Anthropic,

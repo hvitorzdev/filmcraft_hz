@@ -1,0 +1,45 @@
+name: Windows build (fork)
+
+# Builds the desktop app for Windows (x64, with speech-to-text) on every push to main and publishes
+# it as the rolling "latest" release: download FilmCraft-windows-x64.zip, unzip, run filmcraft.exe.
+# Unsigned (no certificate in this fork), so Windows SmartScreen may ask for confirmation once.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p filmcraft -p filmcraft-cli --features filmcraft/whisper
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/FilmCraft | Out-Null
+          Copy-Item target/release/filmcraft.exe, target/release/filmcraft-cli.exe dist/FilmCraft/
+          Copy-Item LICENSE-MIT, LICENSE-APACHE, NOTICE, docs/ai-assistant.md dist/FilmCraft/
+          Compress-Archive -Path dist/FilmCraft -DestinationPath FilmCraft-windows-x64.zip -Force
+      - name: Publish the "latest" release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest FilmCraft-windows-x64.zip \
+            --target "${{ github.sha }}" \
+            --title "FilmCraft com Assistente de IA (Windows)" \
+            --notes "Baixe FilmCraft-windows-x64.zip, extraia e abra filmcraft.exe. Assistente de IA: menu Janela ▸ Assistente de IA. Compilado do commit ${{ github.sha }}."

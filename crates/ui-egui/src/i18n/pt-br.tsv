@@ -3612,3 +3612,4 @@
 	Lower the music to -20 dB while I'm talking	Abaixe a música para -20 dB enquanto eu estiver falando
 	Clean the background noise from my voice	Limpe o ruído de fundo da minha voz
 	Add a slow zoom-in to the selected clip	Adicione um zoom-in lento no clipe selecionado
+	The server is busy ({reason}). Trying again in {s} s ({a} of {n})…	O servidor está ocupado ({reason}). Tentando de novo em {s} s ({a} de {n})…
