@@ -56,7 +56,7 @@ pub(crate) fn parse_reply(v: &Value) -> Result<Message, AiError> {
             Some("tool_use") => {
                 let Some(name) = b.get("name").and_then(Value::as_str) else { continue };
                 let id = b.get("id").and_then(Value::as_str).map_or_else(|| format!("toolu_{i}"), str::to_string);
-                tool_calls.push(ToolCall { id, name: name.to_string(), arguments: arguments_object(b.get("input")) });
+                tool_calls.push(ToolCall { id, name: name.to_string(), arguments: arguments_object(b.get("input")), extra: None });
             }
             _ => {}
         }

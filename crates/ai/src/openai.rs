@@ -14,7 +14,14 @@ pub(crate) fn request_body(settings: &Settings, system: &str, messages: &[Messag
                 if !tool_calls.is_empty() {
                     a["tool_calls"] = tool_calls
                         .iter()
-                        .map(|c| json!({"id": c.id, "type": "function", "function": {"name": c.name, "arguments": c.arguments.to_string()}}))
+                        .map(|c| {
+                            let mut call = json!({"id": c.id, "type": "function", "function": {"name": c.name, "arguments": c.arguments.to_string()}});
+                            // Gemini needs its thought signature back exactly as it sent it
+                            if let Some(extra) = &c.extra {
+                                call["extra_content"] = extra.clone();
+                            }
+                            call
+                        })
                         .collect();
                 }
                 a
@@ -45,7 +52,12 @@ pub(crate) fn parse_reply(v: &Value) -> Result<Message, AiError> {
     for (i, c) in msg.get("tool_calls").and_then(Value::as_array).into_iter().flatten().enumerate() {
         let Some(name) = c.pointer("/function/name").and_then(Value::as_str) else { continue };
         let id = c.get("id").and_then(Value::as_str).map_or_else(|| format!("call_{i}"), str::to_string);
-        tool_calls.push(ToolCall { id, name: name.to_string(), arguments: arguments_object(c.pointer("/function/arguments")) });
+        tool_calls.push(ToolCall {
+            id,
+            name: name.to_string(),
+            arguments: arguments_object(c.pointer("/function/arguments")),
+            extra: c.get("extra_content").filter(|v| v.is_object()).cloned(),
+        });
     }
     Ok(Message::Assistant { text, tool_calls })
 }

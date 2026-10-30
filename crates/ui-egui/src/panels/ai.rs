@@ -310,7 +310,7 @@ fn start(app: &mut FilmcraftApp, ctx: &egui::Context, text: String) {
                 return ask_ui(call);
             }
             let max = call.arguments.get("max_seconds").and_then(Value::as_u64).unwrap_or(300).clamp(1, MAX_JOB_WAIT_SECS);
-            let poll = ToolCall { id: call.id.clone(), name: "jobs_poll".into(), arguments: json!({}) };
+            let poll = ToolCall { id: call.id.clone(), name: "jobs_poll".into(), arguments: json!({}), extra: None };
             let started = std::time::Instant::now();
             loop {
                 let (ok, text) = ask_ui(&poll);
@@ -640,7 +640,10 @@ mod tests {
         let mut h = Vec::new();
         for i in 0..20 {
             h.push(Message::User { text: i.to_string() });
-            h.push(Message::Assistant { text: String::new(), tool_calls: vec![ToolCall { id: "c".into(), name: "x".into(), arguments: json!({}) }] });
+            h.push(Message::Assistant {
+                text: String::new(),
+                tool_calls: vec![ToolCall { id: "c".into(), name: "x".into(), arguments: json!({}), extra: None }],
+            });
             h.push(Message::Tool { call_id: "c".into(), name: "x".into(), content: String::new() });
         }
         trim_history(&mut h);

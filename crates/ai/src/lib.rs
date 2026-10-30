@@ -45,6 +45,10 @@ pub struct ToolCall {
     pub name: String,
     /// The arguments as JSON (an object; `{}` when the model sent none or unreadable ones).
     pub arguments: Value,
+    /// Provider data that must go back unchanged with the call (Gemini's `extra_content` with its
+    /// `thought_signature`); `None` for most providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Value>,
 }
 
 /// A tool the model may call.

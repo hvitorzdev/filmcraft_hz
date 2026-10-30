@@ -248,3 +248,21 @@ fn error_bodies_become_one_line_messages() {
     assert_eq!(transport::error_message(r#"{"detail":"nope"}"#), "nope");
     assert_eq!(transport::error_message("<html>\n Bad Gateway </html>"), "<html> Bad Gateway </html>");
 }
+
+/// Gemini 3 (OpenAI-compatible) sends a thought signature with each tool call and rejects the next
+/// request unless it comes back unchanged on that call.
+#[test]
+fn gemini_thought_signatures_go_back_with_their_calls() {
+    let sig = json!({"google": {"thought_signature": "CvcQAdHN2OekY10ClPFkYA=="}});
+    let fake = Fake::new(vec![
+        json!({"choices": [{"message": {"tool_calls": [{"id": "a", "type": "function", "function": {"name": "run_command", "arguments": "{}"}, "extra_content": sig}]}}]}),
+        json!({"choices": [{"message": {"content": "ok"}}]}),
+    ]);
+    let mut history = Vec::new();
+    run_turn(&openai_settings(), &fake, "", &tools(), &mut history, "x", &mut |_| (true, "done".into()), &mut |_| {}, &AtomicBool::new(false)).unwrap();
+    let seen = fake.seen.lock().unwrap();
+    let call = &seen[1].2["messages"][2]["tool_calls"][0];
+    assert_eq!(call["extra_content"], sig, "{call}");
+    // providers without it get no extra field
+    assert!(seen[0].2["messages"].as_array().unwrap().iter().all(|m| m.get("extra_content").is_none()));
+}
