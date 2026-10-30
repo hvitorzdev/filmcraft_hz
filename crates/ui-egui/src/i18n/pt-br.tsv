@@ -3613,3 +3613,6 @@
 	Clean the background noise from my voice	Limpe o ruído de fundo da minha voz
 	Add a slow zoom-in to the selected clip	Adicione um zoom-in lento no clipe selecionado
 	The server is busy ({reason}). Trying again in {s} s ({a} of {n})…	O servidor está ocupado ({reason}). Tentando de novo em {s} s ({a} de {n})…
+	A newer official version is available: {name} ({version}). It was not installed, because this FilmCraft is your fork with the AI Assistant and the official version doesn't have it. Bring its changes into the fork when you need them.	Há uma versão oficial mais nova: {name} ({version}). Ela não foi instalada, porque este FilmCraft é o seu fork com o Assistente de IA e a versão oficial não o tem. Traga as mudanças dela para o fork quando precisar.
+	Official FilmCraft {version} is available (not installed).	O FilmCraft oficial {version} está disponível (não instalado).
+	See what's new	Ver novidades
